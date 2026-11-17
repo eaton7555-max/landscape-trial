@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Landscape Jobs (Trial)</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#059669">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Landscape Trial">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0c1f17; color: #f8fafc; min-height: 100vh; padding: 16px; }
+    h1 { font-size: 1.5rem; margin-bottom: 4px; }
+    .lang-toggle { margin-bottom: 12px; }
+    .lang-toggle button { width: auto; padding: 6px 12px; background: #14291f; color: #86efac; margin-right: 8px; }
+    .lang-toggle button.active { background: #059669; color: white; }
+    .summary { display: flex; gap: 10px; margin-bottom: 12px; font-size: 0.85rem; flex-wrap: wrap; }
+    .summary div { background: #14291f; padding: 10px 12px; border-radius: 12px; flex: 1; min-width: 120px; }
+    .summary .label { color: #86efac; font-size: 0.7rem; }
+    .add-form, .job, .biz-form { background: #14291f; border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+    input, select, button, textarea { font-family: inherit; font-size: 1rem; padding: 10px; border-radius: 10px; border: none; width: 100%; margin-bottom: 8px; }
+    input, select, textarea { background: #0c1f17; color: white; }
+    textarea { min-height: 60px; resize: vertical; }
+    button.add, button.line, button.clear, button.save-biz { background: #059669; color: white; font-weight: 600; cursor: pointer; width: auto; padding: 10px 16px; }
+    button.line { font-size: 0.85rem; margin-bottom: 12px; }
+    button.clear { background: #7f1d1d; margin-top: 8px; }
+    button.save-biz { margin-top: 4px; }
+    .line-item { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+    .line-item select, .line-item input { margin: 0; flex: 1; }
+    .line-item .qty { max-width: 70px; }
+    .line-item .price { max-width: 90px; }
+    .job .top { display: flex; justify-content: space-between; align-items: flex-start; }
+    .job .client { font-weight: 600; }
+    .job .amount { color: #86efac; font-weight: 600; }
+    .job .meta { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+    .job .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .job button { width: auto; padding: 6px 12px; font-size: 0.85rem; background: #059669; color: white; }
+    .lines { font-size: 0.8rem; color: #cbd5e1; margin-top: 6px; }
+    .status-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 6px; background: #1e3a2f; }
+    .row { display: flex; gap: 8px; }
+    .row input { flex: 1; }
+  </style>
+</head>
+<body>
+  <div class="lang-toggle">
+    <button id="btnEn" class="active">English</button>
+    <button id="btnEs">Español</button>
+  </div>
+  <h1 id="appTitle">Landscape Jobs</h1>
+  <div class="summary">
+    <div><div class="label" id="lblReceived">Received</div><div id="received">$0</div></div>
+    <div><div class="label" id="lblPending">Pending</div><div id="pending">$0</div></div>
+    <div><div class="label" id="lblJobs">Jobs</div><div id="jobCount">0</div></div>
+  </div>
+
+  <div class="biz-form">
+    <div style="font-size:0.85rem; margin-bottom:8px; color:#86efac;" id="bizHeader">Your Business Info (appears on invoices)</div>
+    <input id="bizName" placeholder="Business name" />
+    <input id="bizAddress" placeholder="Business address" />
+    <input id="bizPhone" placeholder="Business phone" />
+    <div class="row">
+      <input id="paymentTerms" type="number" placeholder="Payment terms (days)" value="14" />
+      <input id="discountDefault" type="number" step="0.01" placeholder="Default discount %" value="0" />
+    </div>
+    <button class="save-biz" id="saveBiz">Save Business Info</button>
+  </div>
+
+  <div class="add-form">
+    <input id="client" placeholder="Customer name" />
+    <input id="address" placeholder="Customer address" />
+    <input id="phone" placeholder="Phone (optional)" />
+    <input id="email" placeholder="Email (optional)" />
+    <input id="crew" placeholder="Crew name" />
+    <div id="lines"></div>
+    <button class="line" type="button" id="addLine">+ Add line item</button>
+    <div class="row">
+      <input id="countyTax" type="number" step="0.01" placeholder="County tax %" value="0" />
+      <input id="discount" type="number" step="0.01" placeholder="Discount %" value="0" />
+    </div>
+    <textarea id="notes" placeholder="Notes (access, photos link, special instructions…)"></textarea>
+    <button class="add" id="save">Save Job</button>
+  </div>
+
+  <button class="clear" id="clearBtn">Clear Phone Jobs</button>
+  <div id="list"></div>
+
+  <script>
+    // 7-day trial lock
+    const TRIAL_KEY = "landscape-trial-start";
+    let trialStart = localStorage.getItem(TRIAL_KEY);
+    if (!trialStart) {
+      trialStart = Date.now();
+      localStorage.setItem(TRIAL_KEY, trialStart);
+    }
+    const daysLeft = 7 - Math.floor((Date.now() - parseInt(trialStart)) / (1000*60*60*24));
+    if (daysLeft <= 0) {
+      document.body.innerHTML = `<div style="padding:40px;text-align:center;font-size:1.2rem;">
+        <h2>Trial Ended</h2>
+        <p>This 7-day trial has expired.</p>
+        <p>Contact the app owner to continue.</p>
+      </div>`;
+      throw new Error("Trial ended");
+    }
+
+    const { jsPDF } = window.jspdf;
+    const LANG_KEY = "landscape-lang";
+    let lang = localStorage.getItem(LANG_KEY) || "en";
+
+    const t = {
+      en: {
+        title: "Landscape Jobs", received: "Received", pending: "Pending", jobs: "Jobs",
+        bizHeader: "Your Business Info (appears on invoices)",
+        bizName: "Business name", bizAddress: "Business address", bizPhone: "Business phone",
+        paymentTerms: "Payment terms (days)", discountDefault: "Default discount %",
+        saveBiz: "Save Business Info",
+        client: "Customer name", address: "Customer address", phone: "Phone (optional)", email: "Email (optional)",
+        crew: "Crew name", addLine: "+ Add line item",
+        countyTax: "County tax %", discount: "Discount %",
+        notes: "Notes (access, photos link, special instructions…)",
+        save: "Save Job", clear: "Clear Phone Jobs",
+        viewInvoice: "View Invoice", emailInvoice: "Email Invoice", accept: "Accept", start: "Start Work", invoice: "Raise Invoice", paid: "Mark Paid",
+        noCrew: "No crew", noItems: "No line items", notesPrefix: "Notes: ",
+        needCustomer: "Need a customer and at least one line item with a price",
+        bizSaved: "Business info saved.",
+        clearConfirm: "Clear all jobs from this phone? The Google Sheet will not be affected.",
+        cleared: "Phone jobs cleared.",
+        statuses: { quote: "Quoted", accepted: "Accepted", wip: "Work in Progress", invoiced: "Invoiced", paid: "Paid" },
+        services: ["Mowing", "Edging", "Planting", "Mulching", "Landscape", "Seasonal cleanup", "Tree trimming", "Irrigation", "Hardscape", "Fertilizing", "Leaf removal", "Fountain", "Lawn ornament", "Aeration", "Overseeding", "Weed control", "Other"]
+      },
+      es: {
+        title: "Trabajos de Paisajismo", received: "Recibido", pending: "Pendiente", jobs: "Trabajos",
+        bizHeader: "Información de su negocio (aparece en las facturas)",
+        bizName: "Nombre del negocio", bizAddress: "Dirección del negocio", bizPhone: "Teléfono del negocio",
+        paymentTerms: "Términos de pago (días)", discountDefault: "Descuento predeterminado %",
+        saveBiz: "Guardar información",
+        client: "Nombre del cliente", address: "Dirección del cliente", phone: "Teléfono (opcional)", email: "Correo (opcional)",
+        crew: "Nombre del equipo", addLine: "+ Agregar artículo",
+        countyTax: "Impuesto %", discount: "Descuento %",
+        notes: "Notas (acceso, enlace de fotos, instrucciones especiales…)",
+        save: "Guardar trabajo", clear: "Borrar trabajos del teléfono",
+        viewInvoice: "Ver factura", emailInvoice: "Enviar factura", accept: "Aceptar", start: "Comenzar trabajo", invoice: "Generar factura", paid: "Marcar pagado",
+        noCrew: "Sin equipo", noItems: "Sin artículos", notesPrefix: "Notas: ",
+        needCustomer: "Se necesita un cliente y al menos un artículo con precio",
+        bizSaved: "Información guardada.",
+        clearConfirm: "¿Borrar todos los trabajos de este teléfono? La hoja de Google no se verá afectada.",
+        cleared: "Trabajos del teléfono borrados.",
+        statuses: { quote: "Cotizado", accepted: "Aceptado", wip: "En progreso", invoiced: "Facturado", paid: "Pagado" },
+        services: ["Corte de césped", "Bordes", "Plantación", "Mantillo", "Paisajismo", "Limpieza estacional", "Poda de árboles", "Riego", "Hardscape", "Fertilización", "Remoción de hojas", "Fuente", "Ornamento de jardín", "Aireación", "Resiembra", "Control de malezas", "Otro"]
+      }
+    };
+
+    const KEY = "landscape-jobs-v3";
+    const BIZ_KEY = "landscape-biz-v2";
+    const SHEET_URL = "https://script.google.com/macros/s/AKfycbxljqDbThH-aAcGHFdvsyS854LLx43WWgFC8TEKdEO7ffRtn8HJl8UM0yK2DIo5NYmyrQ/exec";
+
+    function tr(key) { return t[lang][key] || key; }
+
+    function applyLang() {
+      document.getElementById("appTitle").textContent = tr("title");
+      document.getElementById("lblReceived").textContent = tr("received");
+      document.getElementById("lblPending").textContent = tr("pending");
+      document.getElementById("lblJobs").textContent = tr("jobs");
+      document.getElementById("bizHeader").textContent = tr("bizHeader");
+      document.getElementById("bizName").placeholder = tr("bizName");
+      document.getElementById("bizAddress").placeholder = tr("bizAddress");
+      document.getElementById("bizPhone").placeholder = tr("bizPhone");
+      document.getElementById("paymentTerms").placeholder = tr("paymentTerms");
+      document.getElementById("discountDefault").placeholder = tr("discountDefault");
+      document.getElementById("saveBiz").textContent = tr("saveBiz");
+      document.getElementById("client").placeholder = tr("client");
+      document.getElementById("address").placeholder = tr("address");
+      document.getElementById("phone").placeholder = tr("phone");
+      document.getElementById("email").placeholder = tr("email");
+      document.getElementById("crew").placeholder = tr("crew");
+      document.getElementById("addLine").textContent = tr("addLine");
+      document.getElementById("countyTax").placeholder = tr("countyTax");
+      document.getElementById("discount").placeholder = tr("discount");
+      document.getElementById("notes").placeholder = tr("notes");
+      document.getElementById("save").textContent = tr("save");
+      document.getElementById("clearBtn").textContent = tr("clear");
+      document.getElementById("btnEn").classList.toggle("active", lang === "en");
+      document.getElementById("btnEs").classList.toggle("active", lang === "es");
+      render();
+    }
+
+    function load() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
+    function save(items) { localStorage.setItem(KEY, JSON.stringify(items)); }
+    function loadBiz() { try { return JSON.parse(localStorage.getItem(BIZ_KEY)) || { paymentTerms: 14, discountDefault: 0 }; } catch { return { paymentTerms: 14, discountDefault: 0 }; } }
+    function saveBiz(biz) { localStorage.setItem(BIZ_KEY, JSON.stringify(biz)); }
+    function money(n) { return "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function nextInvoiceNum() { const jobs = load(); const nums = jobs.map(j => j.invoiceNum || 0); return Math.max(1000, ...nums) + 1; }
+
+    function addLineRow(service = t[lang].services[0], qty = 1, price = "") {
+      const div = document.createElement("div");
+      div.className = "line-item";
+      div.innerHTML = `<select class="svc">${t[lang].services.map(s => `<option ${s===service?"selected":""}>${s}</option>`).join("")}</select>
+        <input class="qty" type="number" step="1" min="1" value="${qty}" placeholder="Qty" />
+        <input class="price" type="number" step="0.01" value="${price}" placeholder="$" />`;
+      document.getElementById("lines").appendChild(div);
+    }
+
+    function getLines() {
+      return Array.from(document.querySelectorAll(".line-item")).map(row => ({
+        service: row.querySelector(".svc").value,
+        qty: parseFloat(row.querySelector(".qty").value) || 1,
+        price: parseFloat(row.querySelector(".price").value) || 0
+      })).filter(l => l.price > 0);
+    }
+
+    function calc(job) {
+      const subtotal = (job.lines || []).reduce((sum, l) => sum + (l.qty * l.price), 0);
+      const discount = subtotal * ((job.discount || 0) / 100);
+      const afterDiscount = subtotal - discount;
+      const tax = afterDiscount * ((job.countyTax || 0) / 100);
+      return { subtotal, discount, afterDiscount, tax, total: afterDiscount + tax };
+    }
+
+    function dueDate(job) {
+      const biz = loadBiz();
+      const days = biz.paymentTerms || 14;
+      const d = new Date(job.created);
+      d.setDate(d.getDate() + days);
+      return d.toLocaleDateString();
+    }
+
+    async function sendToSheet(job) {
+      const c = calc(job);
+      const services = (job.lines || []).map(l => `${l.qty}x ${l.service} @ $${l.price}`).join("; ");
+      const params = new URLSearchParams({
+        date: new Date(job.created).toISOString().slice(0, 10),
+        client: job.client, address: job.address || "", phone: job.phone || "", email: job.email || "",
+        crew: job.crew || "", status: job.status, services, subtotal: c.subtotal,
+        countyTax: job.countyTax || 0, tax: c.tax, total: c.total, notes: job.notes || ""
+      });
+      try { await fetch(SHEET_URL, { method: "POST", mode: "no-cors", body: params }); } catch (e) { console.log("Sheet sync failed", e); }
+    }
+
+    async function emailInvoice(job) {
+      if (!job.email) return alert(lang === "es" ? "No hay correo del cliente" : "No client email on this job");
+      const c = calc(job);
+      const biz = loadBiz();
+      const invNum = job.invoiceNum || "—";
+      const subject = (lang === "es" ? "Factura " : "Invoice ") + invNum + " - " + (biz.name || "Landscape Services");
+      const text = (lang === "es" ? "Hola " : "Hello ") + job.client + ",\n\n" +
+        (lang === "es" ? "Adjunto su factura." : "Please find your invoice attached.") + "\n\n" +
+        "Invoice #" + invNum + "\nTotal: " + money(c.total) + "\n\nThank you!\n" + (biz.name || "");
+
+      const doc = new jsPDF();
+      const date = new Date(job.created).toLocaleDateString();
+      const due = dueDate(job);
+      doc.setFontSize(18); doc.text(biz.name || "Landscape Services", 20, 22);
+      doc.setFontSize(10); if (biz.address) doc.text(biz.address, 20, 28); if (biz.phone) doc.text(biz.phone, 20, 34);
+      doc.setFontSize(16); doc.text("INVOICE", 140, 22);
+      doc.setFontSize(11); doc.text("#" + invNum, 140, 30); doc.text("Date: " + date, 140, 36); doc.text("Due: " + due, 140, 42);
+      doc.setFontSize(11); doc.text("Bill To:", 20, 56);
+      doc.setFontSize(12); doc.text(job.client, 20, 63);
+      doc.setFontSize(10);
+      if (job.address) { const addrLines = doc.splitTextToSize(job.address, 90); doc.text(addrLines, 20, 69); }
+      if (job.phone) doc.text(job.phone, 20, 84); if (job.email) doc.text(job.email, 20, 90);
+      let y = 105;
+      doc.setFontSize(11); doc.text("Description", 20, y); doc.text("Qty", 110, y); doc.text("Price", 140, y); doc.text("Amount", 170, y);
+      y += 5; doc.line(20, y, 190, y); y += 8;
+      (job.lines || []).forEach(line => {
+        const amt = line.qty * line.price; doc.setFontSize(10);
+        doc.text(line.service, 20, y); doc.text(String(line.qty), 110, y); doc.text(money(line.price), 140, y); doc.text(money(amt), 170, y); y += 7;
+      });
+      y += 4; doc.line(20, y, 190, y); y += 10;
+      doc.setFontSize(11); doc.text("Subtotal: " + money(c.subtotal), 130, y); y += 7;
+      if (c.discount > 0) { doc.text("Discount (" + job.discount + "%): -" + money(c.discount), 130, y); y += 7; }
+      if (job.countyTax > 0) { doc.text("Tax (" + job.countyTax + "%): " + money(c.tax), 130, y); y += 7; }
+      doc.setFontSize(13); doc.text("Total Due: " + money(c.total), 130, y);
+      y += 12; doc.setFontSize(10); doc.text("Payment terms: Net " + (biz.paymentTerms || 14) + " days", 20, y);
+      if (job.notes) { y += 10; doc.text("Notes:", 20, y); y += 6; const split = doc.splitTextToSize(job.notes, 170); doc.text(split, 20, y); }
+      doc.setFontSize(9); doc.text("Thank you for your business!", 20, 270);
+
+      const pdfBlob = doc.output("blob");
+      const file = new File([pdfBlob], "Invoice-" + invNum + "-" + job.client.replace(/\s+/g, "-") + ".pdf", { type: "application/pdf" });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ title: subject, text: text, files: [file] });
+          return;
+        } catch (e) {
+          if (e.name !== "AbortError") console.log("Share failed", e);
+        }
+      }
+      const subjectEnc = encodeURIComponent(subject);
+      const bodyEnc = encodeURIComponent(text);
+      window.location.href = "mailto:" + job.email + "?subject=" + subjectEnc + "&body=" + bodyEnc;
+      alert(lang === "es" ? "El PDF no se adjuntó automáticamente. Ábrelo desde Ver Factura y adjúntalo." : "PDF was not attached automatically. Use View Invoice to save the PDF, then attach it to the email.");
+    }
+
+    function makeInvoice(job) {
+      const c = calc(job);
+      const biz = loadBiz();
+      const doc = new jsPDF();
+      const date = new Date(job.created).toLocaleDateString();
+      const invNum = job.invoiceNum || "—";
+      const due = dueDate(job);
+      doc.setFontSize(18); doc.text(biz.name || (lang==="es" ? "Servicios de Paisajismo" : "Landscape Services"), 20, 22);
+      doc.setFontSize(10); if (biz.address) doc.text(biz.address, 20, 28); if (biz.phone) doc.text(biz.phone, 20, 34);
+      doc.setFontSize(16); doc.text(lang==="es" ? "FACTURA" : "INVOICE", 140, 22);
+      doc.setFontSize(11); doc.text(`#${invNum}`, 140, 30); doc.text(`${lang==="es"?"Fecha":"Date"}: ${date}`, 140, 36); doc.text(`${lang==="es"?"Vence":"Due"}: ${due}`, 140, 42);
+      doc.setFontSize(11); doc.text(lang==="es" ? "Facturar a:" : "Bill To:", 20, 56);
+      doc.setFontSize(12); doc.text(job.client, 20, 63);
+      doc.setFontSize(10);
+      if (job.address) { const addrLines = doc.splitTextToSize(job.address, 90); doc.text(addrLines, 20, 69); }
+      if (job.phone) doc.text(job.phone, 20, 84); if (job.email) doc.text(job.email, 20, 90);
+      if (job.crew) { doc.setFontSize(11); doc.text(`${lang==="es"?"Equipo":"Crew"}: ${job.crew}`, 120, 56); }
+      let y = 105; doc.setFontSize(11); doc.text(lang==="es"?"Descripción":"Description", 20, y); doc.text("Qty", 110, y); doc.text(lang==="es"?"Precio":"Price", 140, y); doc.text(lang==="es"?"Monto":"Amount", 170, y);
+      y += 5; doc.setLineWidth(0.2); doc.line(20, y, 190, y); y += 8;
+      (job.lines || []).forEach(line => {
+        const amt = line.qty * line.price; doc.setFontSize(10);
+        doc.text(line.service, 20, y); doc.text(String(line.qty), 110, y); doc.text(money(line.price), 140, y); doc.text(money(amt), 170, y); y += 7;
+      });
+      y += 4; doc.line(20, y, 190, y); y += 10; doc.setFontSize(11);
+      doc.text(`${lang==="es"?"Subtotal":"Subtotal"}: ${money(c.subtotal)}`, 130, y); y += 7;
+      if (c.discount > 0) { doc.text(`${lang==="es"?"Descuento":"Discount"} (${job.discount}%): -${money(c.discount)}`, 130, y); y += 7; }
+      if (job.countyTax > 0) { doc.text(`${lang==="es"?"Impuesto":"Tax"} (${job.countyTax}%): ${money(c.tax)}`, 130, y); y += 7; }
+      doc.setFontSize(13); doc.text(`${lang==="es"?"Total a pagar":"Total Due"}: ${money(c.total)}`, 130, y);
+      y += 12; doc.setFontSize(10); doc.text(`${lang==="es"?"Términos de pago":"Payment terms"}: Net ${biz.paymentTerms || 14} ${lang==="es"?"días":"days"}`, 20, y);
+      if (job.notes) { y += 10; doc.text(lang==="es"?"Notas:":"Notes:", 20, y); y += 6; const split = doc.splitTextToSize(job.notes, 170); doc.text(split, 20, y); }
+      doc.setFontSize(9); doc.text(lang==="es"?"¡Gracias por su negocio!":"Thank you for your business!", 20, 270);
+      doc.save(`Invoice-${invNum}-${job.client.replace(/\s+/g, "-")}.pdf`);
+    }
+
+    function render() {
+      const jobs = load();
+      let received = 0, pending = 0;
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+      jobs.forEach(job => {
+        const c = calc(job);
+        if (job.status === "paid") received += c.total;
+        else if (job.status === "invoiced") pending += c.total;
+        const div = document.createElement("div");
+        div.className = "job";
+        let actions = `<button data-id="${job.id}" data-action="pdf">${tr("viewInvoice")}</button>`;
+        if (job.email) actions += `<button data-id="${job.id}" data-action="email">${tr("emailInvoice")}</button>`;
+        if (job.status === "quote") actions += `<button data-id="${job.id}" data-action="accept">${tr("accept")}</button>`;
+        if (job.status === "accepted") actions += `<button data-id="${job.id}" data-action="start">${tr("start")}</button>`;
+        if (job.status === "wip") actions += `<button data-id="${job.id}" data-action="invoice">${tr("invoice")}</button>`;
+        if (job.status === "invoiced") actions += `<button data-id="${job.id}" data-action="paid">${tr("paid")}</button>`;
+        const linesText = (job.lines || []).map(l => `${l.qty}× ${l.service} @ ${money(l.price)}`).join("<br>");
+        const label = t[lang].statuses[job.status] || job.status;
+        div.innerHTML = `<div class="top"><div>
+              <div class="client">${job.client} <span class="status-badge">${label}</span></div>
+              <div class="meta">${job.crew || tr("noCrew")}${job.countyTax ? " · " + job.countyTax + "% tax" : ""}${job.discount ? " · " + job.discount + "% off" : ""}${job.invoiceNum ? " · Inv #" + job.invoiceNum : ""}</div>
+              ${job.address ? `<div class="meta">${job.address}</div>` : ""}
+              <div class="lines">${linesText || tr("noItems")}</div>
+              ${job.notes ? `<div class="meta">${tr("notesPrefix")}${job.notes}</div>` : ""}
+            </div><div class="amount">${money(c.total)}</div></div>
+          <div class="actions">${actions}</div>`;
+        list.appendChild(div);
+      });
+      document.getElementById("received").textContent = money(received);
+      document.getElementById("pending").textContent = money(pending);
+      document.getElementById("jobCount").textContent = jobs.length;
+      list.querySelectorAll("button").forEach(btn => { btn.onclick = () => action(btn.dataset.id, btn.dataset.action); });
+    }
+
+    function action(id, act) {
+      const jobs = load();
+      const job = jobs.find(j => j.id === id);
+      if (!job) return;
+      if (act === "pdf") { makeInvoice(job); return; }
+      if (act === "email") { emailInvoice(job); return; }
+      if (act === "accept") job.status = "accepted";
+      else if (act === "start") job.status = "wip";
+      else if (act === "invoice") { job.status = "invoiced"; job.invoiceDate = Date.now(); if (!job.invoiceNum) job.invoiceNum = nextInvoiceNum(); }
+      else if (act === "paid") job.status = "paid";
+      save(jobs); render();
+    }
+
+    document.getElementById("btnEn").onclick = () => { lang = "en"; localStorage.setItem(LANG_KEY, lang); applyLang(); };
+    document.getElementById("btnEs").onclick = () => { lang = "es"; localStorage.setItem(LANG_KEY, lang); applyLang(); };
+    document.getElementById("addLine").onclick = () => addLineRow();
+    document.getElementById("save").onclick = () => {
+      const client = document.getElementById("client").value.trim();
+      const lines = getLines();
+      if (!client || lines.length === 0) return alert(tr("needCustomer"));
+      const jobs = load();
+      const job = {
+        id: Date.now().toString(), invoiceNum: nextInvoiceNum(), client,
+        address: document.getElementById("address").value.trim(), phone: document.getElementById("phone").value.trim(),
+        email: document.getElementById("email").value.trim(), crew: document.getElementById("crew").value.trim(),
+        lines, countyTax: parseFloat(document.getElementById("countyTax").value) || 0,
+        discount: parseFloat(document.getElementById("discount").value) || 0,
+        notes: document.getElementById("notes").value.trim(), status: "quote", created: Date.now()
+      };
+      jobs.push(job); save(jobs); sendToSheet(job);
+      document.getElementById("client").value = ""; document.getElementById("address").value = "";
+      document.getElementById("phone").value = ""; document.getElementById("email").value = "";
+      document.getElementById("crew").value = ""; document.getElementById("notes").value = "";
+      document.getElementById("discount").value = "0"; document.getElementById("lines").innerHTML = "";
+      addLineRow(); render();
+    };
+    document.getElementById("saveBiz").onclick = () => {
+      const biz = { name: document.getElementById("bizName").value.trim(), address: document.getElementById("bizAddress").value.trim(),
+        phone: document.getElementById("bizPhone").value.trim(), paymentTerms: parseInt(document.getElementById("paymentTerms").value) || 14,
+        discountDefault: parseFloat(document.getElementById("discountDefault").value) || 0 };
+      saveBiz(biz); alert(tr("bizSaved"));
+    };
+    document.getElementById("clearBtn").onclick = () => {
+      if (confirm(tr("clearConfirm"))) { localStorage.removeItem(KEY); render(); alert(tr("cleared")); }
+    };
+
+    const biz = loadBiz();
+    if (biz.name) document.getElementById("bizName").value = biz.name;
+    if (biz.address) document.getElementById("bizAddress").value = biz.address;
+    if (biz.phone) document.getElementById("bizPhone").value = biz.phone;
+    if (biz.paymentTerms) document.getElementById("paymentTerms").value = biz.paymentTerms;
+    if (biz.discountDefault) document.getElementById("discountDefault").value = biz.discountDefault;
+    addLineRow();
+    applyLang();
+    if ("serviceWorker" in navigator) { navigator.serviceWorker.register("sw.js").catch(() => {}); }
+  </script>
+</body>
+</html>
