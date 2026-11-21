@@ -41,10 +41,32 @@
     .lines { font-size: 0.8rem; color: #cbd5e1; margin-top: 6px; }
     .status-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 6px; background: #1e3a2f; }
     .row { display: flex; gap: 8px; }
+    #trialGate { display: none; position: fixed; inset: 0; background: rgba(12, 31, 23, 0.96); z-index: 10000; padding: 16px; overflow: auto; align-items: center; justify-content: center; }
+    #trialGate.open { display: flex; }
+    .trial-gate-card { background: #14291f; border-radius: 16px; padding: 20px; width: 100%; max-width: 400px; }
+    .trial-gate-card p.intro { margin-bottom: 14px; line-height: 1.45; }
+    .trial-gate-card label { display: block; font-size: 0.85rem; color: #86efac; margin-bottom: 4px; }
+    .trial-gate-card button.start { background: #059669; color: white; font-weight: 600; cursor: pointer; width: 100%; margin-top: 8px; }
+    .trial-gate-error { color: #fca5a5; font-size: 0.85rem; margin-bottom: 8px; display: none; }
     .row input { flex: 1; }
   </style>
 </head>
 <body>
+  <div id="trialGate" role="dialog" aria-modal="true" aria-labelledby="trialGateIntro">
+    <div class="trial-gate-card">
+      <div class="lang-toggle">
+        <button type="button" id="gateBtnEn" class="active">English</button>
+        <button type="button" id="gateBtnEs">Español</button>
+      </div>
+      <p class="intro" id="trialGateIntro">Welcome! Please enter your name and email to start your free 7-day trial.</p>
+      <label for="trialGateName" id="trialGateNameLbl">Name</label>
+      <input id="trialGateName" type="text" autocomplete="name" />
+      <label for="trialGateEmail" id="trialGateEmailLbl">Email</label>
+      <input id="trialGateEmail" type="email" autocomplete="email" inputmode="email" />
+      <p class="trial-gate-error" id="trialGateError"></p>
+      <button type="button" class="start" id="trialGateStart">Start trial</button>
+    </div>
+  </div>
   <div class="lang-toggle">
     <button id="btnEn" class="active">English</button>
     <button id="btnEs">Español</button>
@@ -117,23 +139,38 @@
       return ua.slice(0, 80);
     }
 
+    const TRIAL_NAME_KEY = "landscape-trial-name";
+    const TRIAL_EMAIL_KEY = "landscape-trial-email";
+    const TRIAL_IDENT_PING_SENT_KEY = "landscape-trial-ident-ping-sent";
+
+    function trialHasContact() {
+      const name = (localStorage.getItem(TRIAL_NAME_KEY) || "").trim();
+      const email = (localStorage.getItem(TRIAL_EMAIL_KEY) || "").trim();
+      return !!(name && email);
+    }
+
     function sendTrialPing() {
-      if (!TRIAL_PING_URL || localStorage.getItem(TRIAL_PING_SENT_KEY)) return;
+      if (!TRIAL_PING_URL) return;
+      const name = (localStorage.getItem(TRIAL_NAME_KEY) || "").trim();
+      const email = (localStorage.getItem(TRIAL_EMAIL_KEY) || "").trim();
+      if (!name || !email) return;
+      if (localStorage.getItem(TRIAL_IDENT_PING_SENT_KEY)) return;
+      const isContactUpdate = !!localStorage.getItem(TRIAL_PING_SENT_KEY);
       const now = new Date();
       const params = new URLSearchParams({
         date: now.toISOString().slice(0, 10),
-        client: "TRIAL OPENED",
+        client: (isContactUpdate ? "TRIAL CONTACT - " : "TRIAL OPENED - ") + name,
         address: "",
         phone: "",
-        email: "",
+        email: email,
         crew: "",
-        status: "trial-opened",
+        status: isContactUpdate ? "trial-contact" : "trial-opened",
         services: TRIAL_APP_NAME,
         subtotal: "0",
         countyTax: "0",
         tax: "0",
         total: "0",
-        notes: "opened " + now.toISOString() + " | local " + now.toLocaleString() + " | device " + trialDeviceId() + " | phone " + shortPhoneType(),
+        notes: "opened " + now.toISOString() + " | local " + now.toLocaleString() + " | device " + trialDeviceId() + " | phone " + shortPhoneType() + " | name " + name + " | email " + email,
         app: TRIAL_APP_NAME,
         openedAt: now.toISOString(),
         openedLocal: now.toLocaleString(),
@@ -141,7 +178,10 @@
         userAgent: shortPhoneType()
       });
       fetch(TRIAL_PING_URL, { method: "POST", mode: "no-cors", body: params })
-        .then(function () { localStorage.setItem(TRIAL_PING_SENT_KEY, "1"); })
+        .then(function () {
+          localStorage.setItem(TRIAL_PING_SENT_KEY, "1");
+          localStorage.setItem(TRIAL_IDENT_PING_SENT_KEY, "1");
+        })
         .catch(function () {});
     }
 
@@ -150,7 +190,6 @@
       trialStart = Date.now();
       localStorage.setItem(TRIAL_KEY, trialStart);
     }
-    sendTrialPing();
     const daysLeft = 7 - Math.floor((Date.now() - parseInt(trialStart)) / (1000*60*60*24));
     if (daysLeft <= 0) {
       document.body.innerHTML = `<div style="padding:40px;text-align:center;font-size:1.2rem;">
@@ -168,6 +207,9 @@
     const t = {
       en: {
         title: "Landscape Jobs", received: "Received", pending: "Pending", jobs: "Jobs",
+        gateIntro: "Welcome! Please enter your name and email to start your free 7-day trial.",
+        gateName: "Name", gateEmail: "Email", gateStart: "Start trial",
+        gateNeedName: "Please enter your name.", gateNeedEmail: "Please enter a valid email.",
         bizHeader: "Your Business Info (appears on invoices)",
         bizName: "Business name", bizAddress: "Business address", bizPhone: "Business phone",
         paymentTerms: "Payment terms (days)", discountDefault: "Default discount %",
@@ -188,6 +230,9 @@
       },
       es: {
         title: "Trabajos de Paisajismo", received: "Recibido", pending: "Pendiente", jobs: "Trabajos",
+        gateIntro: "¡Bienvenido! Ingrese su nombre y correo electrónico para comenzar su prueba gratuita de 7 días.",
+        gateName: "Nombre", gateEmail: "Correo electrónico", gateStart: "Comenzar prueba",
+        gateNeedName: "Ingrese su nombre.", gateNeedEmail: "Ingrese un correo electrónico válido.",
         bizHeader: "Información de su negocio (aparece en las facturas)",
         bizName: "Nombre del negocio", bizAddress: "Dirección del negocio", bizPhone: "Teléfono del negocio",
         paymentTerms: "Términos de pago (días)", discountDefault: "Descuento predeterminado %",
@@ -239,6 +284,7 @@
       document.getElementById("clearBtn").textContent = tr("clear");
       document.getElementById("btnEn").classList.toggle("active", lang === "en");
       document.getElementById("btnEs").classList.toggle("active", lang === "es");
+      applyTrialGateLang();
       render();
     }
 
@@ -473,6 +519,62 @@
     if (biz.discountDefault) document.getElementById("discountDefault").value = biz.discountDefault;
     addLineRow();
     applyLang();
+
+    function applyTrialGateLang() {
+      const gate = document.getElementById("trialGate");
+      if (!gate) return;
+      document.getElementById("trialGateIntro").textContent = tr("gateIntro");
+      document.getElementById("trialGateNameLbl").textContent = tr("gateName");
+      document.getElementById("trialGateName").placeholder = tr("gateName");
+      document.getElementById("trialGateEmailLbl").textContent = tr("gateEmail");
+      document.getElementById("trialGateEmail").placeholder = tr("gateEmail");
+      document.getElementById("trialGateStart").textContent = tr("gateStart");
+      document.getElementById("gateBtnEn").classList.toggle("active", lang === "en");
+      document.getElementById("gateBtnEs").classList.toggle("active", lang === "es");
+      const err = document.getElementById("trialGateError");
+      if (err && err.dataset.err) err.textContent = tr(err.dataset.err);
+    }
+
+    function setupTrialGate() {
+      document.getElementById("gateBtnEn").onclick = function () { lang = "en"; localStorage.setItem(LANG_KEY, lang); applyLang(); };
+      document.getElementById("gateBtnEs").onclick = function () { lang = "es"; localStorage.setItem(LANG_KEY, lang); applyLang(); };
+      if (trialHasContact()) {
+        sendTrialPing();
+        return;
+      }
+      const gate = document.getElementById("trialGate");
+      const err = document.getElementById("trialGateError");
+      const nameInput = document.getElementById("trialGateName");
+      const emailInput = document.getElementById("trialGateEmail");
+      gate.classList.add("open");
+      document.body.style.overflow = "hidden";
+      setTimeout(function () { nameInput.focus(); }, 0);
+
+      function showErr(key) {
+        err.dataset.err = key;
+        err.textContent = tr(key);
+        err.style.display = "block";
+      }
+
+      function submitGate() {
+        const name = nameInput.value.trim();
+        const email = emailInput.value.trim();
+        if (!name) { showErr("gateNeedName"); nameInput.focus(); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showErr("gateNeedEmail"); emailInput.focus(); return; }
+        localStorage.setItem(TRIAL_NAME_KEY, name);
+        localStorage.setItem(TRIAL_EMAIL_KEY, email);
+        err.style.display = "none";
+        gate.classList.remove("open");
+        document.body.style.overflow = "";
+        sendTrialPing();
+      }
+
+      document.getElementById("trialGateStart").onclick = submitGate;
+      nameInput.addEventListener("keydown", function (e) { if (e.key === "Enter") emailInput.focus(); });
+      emailInput.addEventListener("keydown", function (e) { if (e.key === "Enter") submitGate(); });
+    }
+
+    setupTrialGate();
     if ("serviceWorker" in navigator) { navigator.serviceWorker.register("sw.js").catch(() => {}); }
   </script>
 </body>
