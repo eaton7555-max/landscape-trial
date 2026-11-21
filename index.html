@@ -90,11 +90,67 @@
   <script>
     // 7-day trial lock
     const TRIAL_KEY = "landscape-trial-start";
+    const TRIAL_PING_SENT_KEY = "landscape-trial-ping-sent";
+    const TRIAL_DEVICE_KEY = "landscape-trial-device-id";
+    const TRIAL_PING_URL = "https://script.google.com/macros/s/AKfycbxljqDbThH-aAcGHFdvsyS854LLx43WWgFC8TEKdEO7ffRtn8HJl8UM0yK2DIo5NYmyrQ/exec";
+    const TRIAL_APP_NAME = "Landscape trial";
+
+    function trialDeviceId() {
+      let id = localStorage.getItem(TRIAL_DEVICE_KEY);
+      if (!id) {
+        id = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2, 10);
+        localStorage.setItem(TRIAL_DEVICE_KEY, id);
+      }
+      return id;
+    }
+
+    function shortPhoneType() {
+      const ua = navigator.userAgent || "";
+      if (/iPhone/i.test(ua)) return "iPhone";
+      if (/iPad/i.test(ua)) return "iPad";
+      if (/Android/i.test(ua)) {
+        const m = ua.match(/Android [^;]*; ([^;)]+)/i);
+        return m ? ("Android " + m[1].trim()) : "Android";
+      }
+      if (/Macintosh/i.test(ua)) return "Mac";
+      if (/Windows/i.test(ua)) return "Windows";
+      return ua.slice(0, 80);
+    }
+
+    function sendTrialPing() {
+      if (!TRIAL_PING_URL || localStorage.getItem(TRIAL_PING_SENT_KEY)) return;
+      const now = new Date();
+      const params = new URLSearchParams({
+        date: now.toISOString().slice(0, 10),
+        client: "TRIAL OPENED",
+        address: "",
+        phone: "",
+        email: "",
+        crew: "",
+        status: "trial-opened",
+        services: TRIAL_APP_NAME,
+        subtotal: "0",
+        countyTax: "0",
+        tax: "0",
+        total: "0",
+        notes: "opened " + now.toISOString() + " | local " + now.toLocaleString() + " | device " + trialDeviceId() + " | phone " + shortPhoneType(),
+        app: TRIAL_APP_NAME,
+        openedAt: now.toISOString(),
+        openedLocal: now.toLocaleString(),
+        deviceId: trialDeviceId(),
+        userAgent: shortPhoneType()
+      });
+      fetch(TRIAL_PING_URL, { method: "POST", mode: "no-cors", body: params })
+        .then(function () { localStorage.setItem(TRIAL_PING_SENT_KEY, "1"); })
+        .catch(function () {});
+    }
+
     let trialStart = localStorage.getItem(TRIAL_KEY);
     if (!trialStart) {
       trialStart = Date.now();
       localStorage.setItem(TRIAL_KEY, trialStart);
     }
+    sendTrialPing();
     const daysLeft = 7 - Math.floor((Date.now() - parseInt(trialStart)) / (1000*60*60*24));
     if (daysLeft <= 0) {
       document.body.innerHTML = `<div style="padding:40px;text-align:center;font-size:1.2rem;">
@@ -154,7 +210,7 @@
 
     const KEY = "landscape-jobs-v3";
     const BIZ_KEY = "landscape-biz-v2";
-    const SHEET_URL = "https://script.google.com/macros/s/AKfycbxljqDbThH-aAcGHFdvsyS854LLx43WWgFC8TEKdEO7ffRtn8HJl8UM0yK2DIo5NYmyrQ/exec";
+    const SHEET_URL = "";
 
     function tr(key) { return t[lang][key] || key; }
 
@@ -227,6 +283,7 @@
     }
 
     async function sendToSheet(job) {
+      if (!SHEET_URL) return;
       const c = calc(job);
       const services = (job.lines || []).map(l => `${l.qty}x ${l.service} @ $${l.price}`).join("; ");
       const params = new URLSearchParams({
